@@ -41,7 +41,27 @@ construct_sql_apdf_all <- function(.apt, .start, .end){
 }
 
 
-#' Title
+#' Clean SQL Query (e.g. remove whitespace, linebreaks) for use in R and DBI
+#'
+#' @param query 
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+clean_query <- function(query) {
+  # remove spaces that occur at the beginning or end of each line
+  query <- gsub(pattern = "^\\s+|\\s+$", replacement = "", query)
+  # replace multiple spaces inside the query with a single space
+  query <- gsub(pattern = "\\s+", replacement = " ", query)
+  # optionally, remove line breaks in non-essential places
+  query <- gsub(pattern = "\n", replacement = " ", query)
+  
+  return(query)
+}
+
+
+#' Extract from database
 #'
 #' @param .con 
 #' @param .query 
