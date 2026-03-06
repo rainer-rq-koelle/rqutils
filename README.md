@@ -17,3 +17,4 @@ Opinionated := they work for me and my workflow. Thus, they may inform you (dear
 
 * [ ] get a halfway clean lookup table for PBWG ac types, also fill in for NM flight table misses: start from https://github.com/ColtJD45/icao-aircraft-designator-list/blob/main/icao_aircraft_data.csv
 * [ ] ditto on location indicators for O(verflight) A(rrival) D(eparture) and I(internal) traffic counts; move via OurAirports -> iso code -> Member State and label ECTRL - the original lookup "got lost" & store for retrieval (and time-to-time maintenance / update); also include memberstates from https://github.com/eurocontrol/eurocontrol/blob/main/data-raw/member_state.csv
+* [ ] some useful stuff for decoding NM flight table: https://github.com/eurocontrol/eurocontrol/blob/main/R/flights.R
