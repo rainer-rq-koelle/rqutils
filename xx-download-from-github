@@ -1,0 +1,206 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{}
+library(httr)
+library(jsonlite)
+
+# ---- CONFIGURATION ----
+repo_owner <- "euctrl-pru"   # e.g., "org-or-username"
+repo_name  <- "rq-request-2026-02-11"    # e.g., "project-repo"
+branch     <- "main"              # or "master", "dev", etc.
+folder_path <- "data"             # the folder inside the repo that holds parquet files
+
+# Build the GitHub API URL to list folder contents
+api_url <- paste0(
+  "https://api.github.com/repos/", repo_owner, "/", repo_name,
+  "/contents/", folder_path,
+  "?ref=", branch
+)
+```
+
+test connection
+
+```{}
+resp <- GET(api_url)
+
+# Check for success
+if (http_status(resp)$category != "Success") {
+  stop("Failed to fetch folder contents. Status: ", http_status(resp)$message,
+       "\nURL: ", api_url)
+}
+
+# Parse JSON response
+files_list <- fromJSON(content(resp, "text"))
+```
+
+handling private repos
+
+```{}
+pat <- Sys.getenv("GITHUB_PAT")   # or `readLines("pat.txt")` if you save to file
+if (nzchar(pat)) {
+  resp <- GET(api_url, authenticate("rainer-rq-koelle", pat, type = "basic"))
+} else {
+  stop("No PAT found. Set environment variable GITHUB_PAT for private repos.")
+}
+```
+
+checking what we have
+
+```{}
+files_list <- fromJSON(content(resp, "text")) |> 
+  as_tibble()
+
+# # Extract just the filenames (and full download URLs if needed)
+# filenames <- sapply(files_list, function(x) x$name)
+# file_urls <- sapply(files_list, function(x) x$download_url)
+# 
+# # Show what’s available
+# cat("Files in `data/` folder:\n")
+# print(data.frame(
+#   filename = filenames,
+#   type     = sapply(files_list, function(x) x$type),
+#   size     = sapply(files_list, function(x) x$size)
+# ))
+
+tmp <- files_list |> select(name, path, size)
+tmp
+```
+
+get me some of the selected files
+
+```{}
+selected_files <- tmp$name[1:2]
+
+# Create a local folder if it doesn't exist
+local_dir <- "data"
+if (!dir.exists(local_dir)) dir.create(local_dir)
+
+# Download loop
+for (fn in selected_files) {
+  # Find the matching download URL (from step 1) or build it directly
+  raw_url <- paste0(
+    "https://raw.githubusercontent.com/", repo_owner, "/", repo_name,
+    "/", branch, "/", folder_path, "/", fn
+  )
+  
+  dest_path <- file.path(local_dir, fn)
+  
+  # Download the file
+  message("Downloading: ", fn)
+  download.file(raw_url, dest = dest_path, mode = "wb", quiet = FALSE)
+  
+  # Optional: verify it’s a valid parquet
+  if (file.exists(dest_path)) {
+    try({
+      tbl <- arrow::read_parquet(dest_path, as_data_frame = TRUE)
+      message("✅ Successfully read '", fn, "' (", nrow(tbl), " rows)")
+    })
+  } else {
+    message("⚠️  File not found or download failed: ", fn)
+  }
+}
+```
+
+```{}
+# Get GitHub PAT
+token <- Sys.getenv("GITHUB_PAT")  # or however you store it
+
+# Download with authentication
+temp_file <- tempfile(fileext = ".parquet")
+httr::GET(
+  files_list$url[1],  # Use the API url, not download_url
+  httr::add_headers(Authorization = paste("Bearer", token)),
+  httr::add_headers(Accept = "application/vnd.github.raw"),
+  httr::write_disk(temp_file, overwrite = TRUE)
+)
+
+df <- arrow::read_parquet(temp_file)
+```
+
+```{}
+read_github_parquets <- function(api_urls, token = Sys.getenv("GITHUB_PAT")) {
+  
+  lapply(seq_along(api_urls), function(i) {
+    message("Downloading file ", i, "/", length(api_urls), "...")
+    
+    temp_file <- tempfile(fileext = ".parquet")
+    
+    httr::GET(
+      api_urls[i],
+      httr::add_headers(Authorization = paste("Bearer", token)),
+      httr::add_headers(Accept = "application/vnd.github.raw"),
+      httr::write_disk(temp_file, overwrite = TRUE)
+    )
+    
+    df <- arrow::read_parquet(temp_file)
+    unlink(temp_file)  # Clean up
+    
+    df
+  })
+}
+
+# Usage
+data_list <- read_github_parquets(files_list$url)
+
+# Access individual dataframes
+df1 <- data_list[[1]]
+df2 <- data_list[[2]]
+
+# Or combine them all
+combined_df <- dplyr::bind_rows(data_list)
+```
+
+```{}
+download_github_files <- function(
+      api_urls
+    , dest_folder = "data"
+    , token = Sys.getenv("GITHUB_PAT")) {
+  
+  # Create destination folder if it doesn't exist
+  if (!dir.exists(dest_folder)) {
+    dir.create(dest_folder, recursive = TRUE)
+  }
+  
+  lapply(seq_along(api_urls), function(i) {
+    message("Downloading file ", i, "/", length(api_urls), "...")
+    
+    # Get filename from API response
+    response <- httr::GET(
+      api_urls[i],
+      httr::add_headers(Authorization = paste("Bearer", token))
+    )
+    
+    file_info <- httr::content(response)
+    filename <- file_info$name
+    dest_path <- file.path(dest_folder, filename)
+    
+    # Download the actual file
+    httr::GET(
+      api_urls[i],
+      httr::add_headers(Authorization = paste("Bearer", token)),
+      httr::add_headers(Accept = "application/vnd.github.raw"),
+      httr::write_disk(dest_path, overwrite = TRUE)
+    )
+    
+    message("  Saved: ", dest_path)
+    dest_path
+  })
+}
+``` 
+
+```{}
+#  pipeline the download
+my_picks <- files_list |> filter(grepl("apdf_", name))
+
+# file_paths <- 
+download_github_files(my_picks$url, dest_folder = "raw_data")
+
+# Then read as needed
+#df1 <- arrow::read_parquet(file_paths[[1]])
+```
+
+
+
